@@ -1,8 +1,10 @@
-﻿using api_rest.Data;
+﻿using AutoMapper ;
+using api_rest.Data;
+using api_rest.Data.Dtos;
 using api_rest.Model;
-using api_rest.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.JsonPatch;
 
 namespace api_rest.Controller
 {
@@ -10,27 +12,26 @@ namespace api_rest.Controller
     [Route("v1")]
     public class UserController : ControllerBase
     {
-        [HttpGet("users")]
-        public async Task<IActionResult> GetAsync([FromServices] AppDbContext context)
-        {
-            try
-            {
-                var users = await context
-                    .Users
-                    .AsNoTracking()
-                    .ToListAsync();
+        private AppDbContext _context;
+        private IMapper _mapper;
 
-                return Ok(users);
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, "Erro interno do servidor: " + ex.Message);
-            }
+        public UserController(AppDbContext context, IMapper mapper)
+        {
+            _context = context;
+            _mapper = mapper;
+        }
+
+        [HttpGet("users")]
+        public async Task<List<ReadUserDto>> GetAsync(
+            [FromQuery] int skip = 0,
+            [FromQuery] int take = 50)
+        {
+            return _mapper.Map<List<ReadUserDto>>(
+                await _context.Users.Skip(skip).Take(take).ToListAsync());
         }
 
         [HttpGet("users/{id}")]
         public async Task<IActionResult> GetByIdAsync(
-            [FromServices] AppDbContext context,
             [FromRoute] string id
          )
         {
@@ -38,13 +39,12 @@ namespace api_rest.Controller
                 return BadRequest("ID de usuário inválido.");
 
             try {
-                var user = await context
+                var user = _mapper.Map<ReadUserDto>(await _context
                     .Users
-                    .Where(userData => userData.Id == Guid.Parse(id))
                     .AsNoTracking()
-                    .FirstOrDefaultAsync();
+                    .FirstOrDefaultAsync(userData => userData.Id == userId));
 
-                return user != null ? Ok(user) : BadRequest("Usuário não encontrado."); ;
+                return user != null ? Ok(user) : BadRequest("Usuário não encontrado.");
             }
             catch (Exception ex)
             {
@@ -53,27 +53,23 @@ namespace api_rest.Controller
         }
 
         [HttpPost("users")]
+        [ProducesResponseType(StatusCodes.Status201Created)]
         public async Task<IActionResult> PostAsync(
-            [FromServices] AppDbContext context,
-            [FromBody] CreateUserViewModel model
+            [FromBody] CreateUserDto userDto
          )
         {
             if (!ModelState.IsValid)
                 return BadRequest();
 
-            var user = new User
-            {
-                Date = DateTime.Now,
-                Name = model.Name,
-                Age = model.Age,
-                Gender = model.Gender,
-            };
+            var user = _mapper.Map<User>(userDto);
 
             try
             {
-                await context.Users.AddAsync(user);
-                await context.SaveChangesAsync();
-                return Created($"v1/users/{user.Id}", user);
+                await _context.Users.AddAsync(user);
+                await _context.SaveChangesAsync();
+
+                return CreatedAtAction(
+                    null, user);
             }
             catch (DbUpdateException ex)
             {
@@ -85,44 +81,36 @@ namespace api_rest.Controller
             }
         }
 
-        [HttpPut("users/{id}")]
-        public async Task<IActionResult> PutAsync (
-            [FromServices] AppDbContext context,
-            [FromBody] UpdateUserViewModel model,
+        [HttpPatch("users/{id}")]
+        public async Task<IActionResult> PatchAsync (
+            [FromBody] JsonPatchDocument<UpdateUserDto> patch,
             [FromRoute] string id)
         {
-            if (!ModelState.IsValid)
-                return BadRequest();
-
             if (!Guid.TryParse(id, out var userId))
                 return BadRequest("ID de usuário inválido.");
 
             try
             {
-                var user = await context
+                var user = await _context
                   .Users
-                  .Where(userData => userData.Id == Guid.Parse(id))
-                  .FirstOrDefaultAsync();
+                  .FirstOrDefaultAsync(userData => userData.Id == userId);
 
                 if (user == null)
                     return NotFound("Usuário não encontrado.");
 
-                if (model.Name != null && !model.Name.Equals(user.Name))
+                var userToUpdate = _mapper.Map<UpdateUserDto>(user);
+
+                patch.ApplyTo(userToUpdate, ModelState);
+
+                if (!TryValidateModel(userToUpdate))
                 {
-                    user.Name = model.Name;
-                }
-                if (model.Gender != null && !model.Gender.Equals(user.Gender))
-                {
-                    user.Gender = model.Gender;
-                }
-                if (model.Age > 0 && model.Age != user.Age)
-                {
-                    user.Age = model.Age;
+                    return ValidationProblem(ModelState);
                 }
 
-                await context.SaveChangesAsync();
+                _mapper.Map(userToUpdate, user);
+                await _context.SaveChangesAsync();
 
-                return Ok(user);
+                return NoContent();
             }
             catch (DbUpdateException ex)
             {
@@ -136,16 +124,14 @@ namespace api_rest.Controller
 
         [HttpDelete("users/{id}")]
         public async Task<IActionResult> DeleteAsync(
-            [FromServices] AppDbContext context,
             [FromRoute] string id)
         {
             if (!Guid.TryParse(id, out var userId))
                 return BadRequest("ID de usuário inválido.");
 
-            var user = await context
+            var user = await _context
               .Users
-              .Where(userData => userData.Id == Guid.Parse(id))
-              .FirstOrDefaultAsync();
+              .FirstOrDefaultAsync(userData => userData.Id == userId);
 
             if (user == null)
             {
@@ -154,10 +140,10 @@ namespace api_rest.Controller
 
             try
             {
-                context.Users.Remove(user);
-                await context.SaveChangesAsync();
+                _context.Users.Remove(user);
+                await _context.SaveChangesAsync();
 
-                return Ok();
+                return NoContent();
             }
             catch (DbUpdateException ex)
             {

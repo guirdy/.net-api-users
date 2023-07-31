@@ -1,12 +1,9 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace api_rest.Model
+namespace api_rest.Data.Dtos
 {
-    public class User
+    public class CreateUserDto
     {
-        [Key]
-        [Required]
-        public Guid Id { get; set; } = Guid.NewGuid();
         [Required(ErrorMessage = "Name is required")]
         [StringLength(50, ErrorMessage = "The name has too many characters")]
         public string Name { get; set; }
@@ -19,7 +16,5 @@ namespace api_rest.Model
         public int Age { get; set; }
         [Required(ErrorMessage = "Gender is required")]
         public string Gender { get; set; }
-        [Required]
-        public DateTime Date { get; set; } = DateTime.Now;
     }
 }

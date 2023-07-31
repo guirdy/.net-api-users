@@ -9,5 +9,5 @@ namespace api_rest.Data
 
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
             => optionsBuilder.UseSqlite("DataSource=app.db;Cache=Shared");
-}
+    }
 }
